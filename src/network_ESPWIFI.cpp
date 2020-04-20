@@ -1,5 +1,7 @@
 #if USE_ESPWIFI == 1
 
+#define MQTT_KEEPALIVE 120
+
 #include "log.h"
 #include "network.h"
 #include <ESP8266WiFi.h>
@@ -7,7 +9,16 @@
 #ifdef USE_WIFIMANAER
 #include <DNSServer.h>
 #include <WiFiManager.h>
+#include <PubSubClient.h>
+
 WiFiManager wifiManager;
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+const char* mqtt_server = "192.168.1.8";
+const char* mqtt_username = "H801";
+const char* mqtt_password = "secret";
+
 #endif  
 
 
@@ -26,6 +37,31 @@ void configModeCallback (WiFiManager *myWiFiManager) {
   DEBUG_END();
 }
 
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+    // message received
+}
+
+void mqttReconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    // Create a random client ID
+    String clientId = "H801-testing";
+    
+    // Attempt to connect
+    if (client.connect(clientId.c_str(), mqtt_username, mqtt_password)) {
+      // Once connected, publish an announcement...
+      client.publish("H801/announce", "H801 connected");
+      // ... and resubscribe
+      client.subscribe("H801/commands");
+    } else {
+      // Serial.print("failed, rc=");
+      // Serial.print(client.state());
+      // Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
 
 void virt_networkClass::init() {
   
@@ -62,7 +98,11 @@ void virt_networkClass::init() {
     //if you get here you have connected to the WiFi
     DEBUG_BEGIN(LOG_INFO);
     DEBUG_PRINT(WiFi.localIP().toString().c_str());
-    DEBUG_END();    
+    DEBUG_END();
+
+    // connect to mqtt server
+    client.setServer(mqtt_server, 1883);
+    client.setCallback(mqttCallback);
 
   #else
     const char* ssid = "dd-wrt_57b";  //  your network SSID (name)
@@ -115,6 +155,11 @@ int packetSize = udp.parsePacket();
     }
     onNetworkData(packetBuffer, packetSize);
   }
+
+  if (!client.connected()) {
+    mqttReconnect();
+  }
+  client.loop();
 }
 
 void virt_networkClass::Register_OnNetworkData(event_networkData callback) {
